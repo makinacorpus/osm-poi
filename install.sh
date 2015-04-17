@@ -16,5 +16,6 @@ source databases.conf
 #.......................................................................
 
 echo_step "Creating POI table"
-create extension dblink
-sudo -n -u postgres -s -- psql -d ${POI_DB} -c "CREATE TABLE poi (geom geometry, name text, category text, type text);"
+sudo -n -u postgres -s -- psql -d ${POI_DB} -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+sudo -n -u postgres -s -- psql -d ${POI_DB} -c "CREATE EXTENSION IF NOT EXISTS dblink;"
+sudo -n -u postgres -s -- psql -d ${POI_DB} -c "CREATE TABLE poi (osm_id bigint, geom geometry, name text, category text, type text);"

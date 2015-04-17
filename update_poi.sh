@@ -24,25 +24,29 @@ echo_step "Insert POIs "
 sudo -n -u postgres -s -- psql -d ${POI_DB} -c "
     DELETE FROM poi;"
 
-while IFS=, read key value category type
+while IFS=, read category type key value
 do
-    echo_substep "${category} -> ${type}"
+    echo_substep "${category} -> ${type}    ${key} -> ${value}"
+    # No polygon may be returned with some tags, e.g. public_transport_stop_position.
+    # In this case, the intersection should not be performed to avoid getting empty results.
     sudo -n -u postgres -s -- psql -d ${POI_DB} -c "
         INSERT INTO poi
-        SELECT geom, name, '${category}', '${type}'
+        SELECT osm_id, geom, name, '${category}', '${type}'
         FROM dblink('dbname=${OSM_DB}',
-                    'WITH poly AS (
-                      SELECT st_collect(way) as geom FROM planet_osm_polygon
+                    'WITH simplefeatures AS (
+                      SELECT ST_MakePolygon(ST_exteriorring((ST_Dump(way)).geom)) as geom FROM planet_osm_polygon
                       WHERE ${key}=''${value}''
+                    ), poly AS (
+                      SELECT st_collect(geom) as geom, count(geom) FROM simplefeatures
                     )
-                    SELECT way, name FROM planet_osm_point, poly
+                    SELECT osm_id, way, name FROM planet_osm_point, poly
                     WHERE ${key}=''${value}''
-                    AND NOT ST_intersects(way,poly.geom)')
-              AS t1(geom geometry,name text);"
+                    AND CASE WHEN count = 0 THEN true ELSE NOT ST_intersects(way,poly.geom) END;')
+              AS t1(osm_id bigint, geom geometry,name text);"
     sudo -n -u postgres -s -- psql -d ${POI_DB} -c "
         INSERT INTO poi
-        SELECT ST_Centroid(geom), name, '${category}', '${type}'
+        SELECT osm_id, ST_Centroid(geom), name, '${category}', '${type}'
         FROM dblink('dbname=${OSM_DB}',
-                    'SELECT way, name FROM planet_osm_polygon WHERE ${key}=''${value}''')
-              AS t1(geom geometry,name text);"
+                    'SELECT osm_id, way, name FROM planet_osm_polygon WHERE ${key}=''${value}''')
+              AS t1(osm_id bigint, geom geometry,name text);"
 done < features.conf
